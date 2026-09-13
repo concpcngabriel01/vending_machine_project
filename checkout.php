@@ -1,4 +1,59 @@
-<?php require_once __DIR__ . '/auth.php'; ?>
+<?php
+require_once __DIR__ . '/auth.php';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json; charset=utf-8');
+
+    $payload = json_decode(file_get_contents('php://input'), true);
+    $items = is_array($payload['items'] ?? null) ? $payload['items'] : [];
+
+    if (!$items) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => 'Your cart is empty.']);
+        exit;
+    }
+
+    try {
+        $pdo->beginTransaction();
+        $findProduct = $pdo->prepare('SELECT id, price, stock FROM products WHERE name = ? FOR UPDATE');
+        $decreaseStock = $pdo->prepare('UPDATE products SET stock = stock - ? WHERE id = ?');
+        $total = 0.0;
+
+        foreach ($items as $item) {
+            $name = trim((string) ($item['name'] ?? ''));
+            $quantity = filter_var($item['quantity'] ?? 0, FILTER_VALIDATE_INT);
+
+            if ($name === '' || $quantity === false || $quantity < 1) {
+                throw new RuntimeException('Invalid cart item.');
+            }
+
+            $findProduct->execute([$name]);
+            $product = $findProduct->fetch();
+
+            if (!$product) {
+                throw new RuntimeException($name . ' is no longer available.');
+            }
+            if ((int) $product['stock'] < $quantity) {
+                throw new RuntimeException($name . ' has only ' . $product['stock'] . ' left in stock.');
+            }
+
+            $decreaseStock->execute([$quantity, $product['id']]);
+            $total += (float) $product['price'] * $quantity;
+        }
+
+        $pdo->commit();
+        echo json_encode(['success' => true, 'total' => $total]);
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        http_response_code(409);
+        echo json_encode(['success' => false, 'message' => $exception->getMessage()]);
+    }
+    exit;
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -115,13 +170,38 @@
         document.querySelector("#checkout-items").textContent = count ? "Your order" : "No items yet";
         document.querySelector("#checkout-total").textContent = `₱${total.toFixed(2)}`;
 
-        document.querySelector("#checkout-form").addEventListener("submit", event => {
+        document.querySelector("#checkout-form").addEventListener("submit", async event => {
             event.preventDefault();
             const message = document.querySelector("#checkout-message");
             if (!cart.length) {
                 message.textContent = "Your cart is empty. Add a product first.";
                 return;
             }
+
+            const submitButton = event.target.querySelector("button[type=submit]");
+            submitButton.disabled = true;
+            message.textContent = "Checking stock...";
+
+            let response;
+            try {
+                response = await fetch("checkout.php", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ items: cart.map(item => ({ name: item.name, quantity: item.quantity })) })
+                });
+            } catch (error) {
+                message.textContent = "Unable to connect to the server. Please try again.";
+                submitButton.disabled = false;
+                return;
+            }
+
+            const result = await response.json();
+            if (!response.ok || !result.success) {
+                message.textContent = result.message || "Some items are no longer available.";
+                submitButton.disabled = false;
+                return;
+            }
+
             localStorage.removeItem("vendoraCart");
             message.textContent = "Order placed successfully. Thank you for shopping with Vendora!";
             document.querySelector("#order-reference").textContent = `Reference: VN-${Date.now().toString().slice(-6)}`;
