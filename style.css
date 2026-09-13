@@ -1101,6 +1101,18 @@ PRODUCT CATALOG PAGE
     gap: 12px;
 }
 
+.stock-label {
+    display: block;
+    margin: 0 0 10px;
+    color: #79c99a;
+    font-size: 13px;
+    font-weight: bold;
+}
+
+.detail-stock {
+    margin-top: 18px;
+}
+
 .product-action strong {
     font-size: 17px;
 }
@@ -1115,6 +1127,12 @@ PRODUCT CATALOG PAGE
 
 .add-button:hover {
     background: #ccc;
+}
+
+.add-button:disabled,
+.primary-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
 }
 
 .catalog-message {

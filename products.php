@@ -1,4 +1,15 @@
-<?php require_once __DIR__ . '/auth.php'; ?>
+<?php
+require_once __DIR__ . '/auth.php';
+
+$products = $pdo->query('SELECT id, name, price, stock FROM products ORDER BY id')->fetchAll();
+$productsByName = [];
+foreach ($products as $product) {
+	$productsByName[$product['name']] = [
+		'price' => (float) $product['price'],
+		'stock' => (int) $product['stock'],
+	];
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
 
@@ -229,6 +240,7 @@
 	</footer>
 
 	<script>
+		const databaseProducts = <?= json_encode($productsByName, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 		const filterButtons = document.querySelectorAll(".filter-button");
 		const productCards = document.querySelectorAll(".catalog-card");
 		const cartCount = document.querySelector("#cart-count");
@@ -240,6 +252,17 @@
 		};
 
 		productCards.forEach(card => {
+			const product = databaseProducts[card.dataset.product];
+			if (!product) return;
+			card.querySelector("strong").textContent = `₱${product.price.toFixed(2)}`;
+			const stockLabel = document.createElement("span");
+			stockLabel.className = "stock-label";
+			stockLabel.textContent = product.stock > 0 ? `${product.stock} in stock` : "Out of stock";
+			card.querySelector(".product-action").before(stockLabel);
+			const addButton = card.querySelector(".add-button");
+			addButton.disabled = product.stock === 0;
+			if (product.stock === 0) addButton.textContent = "Unavailable";
+
 			const detailsLink = document.createElement("a");
 			detailsLink.className = "details-link";
 			detailsLink.href = `product.php?name=${encodeURIComponent(card.dataset.product)}`;
@@ -263,13 +286,18 @@
 			button.addEventListener("click", () => {
 				const card = button.closest(".catalog-card");
 				const name = card.dataset.product;
+				const product = databaseProducts[name];
 				const existingItem = cart.find(item => item.name === name);
 
+				if (!product || product.stock === 0) return;
+				if (existingItem && existingItem.quantity >= product.stock) {
+					catalogMessage.textContent = `${name} has only ${product.stock} available.`;
+					return;
+				}
 				if (existingItem) {
 					existingItem.quantity += 1;
 				} else {
-					const price = Number(card.querySelector("strong").textContent.replace(/[^0-9.]/g, ""));
-					cart.push({ name, price, quantity: 1 });
+					cart.push({ name, price: product.price, quantity: 1 });
 				}
 
 				localStorage.setItem("vendoraCart", JSON.stringify(cart));
